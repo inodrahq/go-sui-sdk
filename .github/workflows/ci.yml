@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.23', '1.24', '1.25']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Run tests
+        run: go test ./... -count=1 -race -v
+
+      - name: Coverage
+        if: matrix.go-version == '1.25'
+        run: |
+          go test ./... -coverprofile=coverage.out -count=1
+          go tool cover -func=coverage.out | tail -1
+
+      - name: Vet
+        run: go vet ./...

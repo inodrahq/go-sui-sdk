@@ -1,0 +1,18 @@
+# Coverage files
+*.out
+
+# Test binaries
+*.test
+
+# Vendor directory
+vendor/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment
+.env

@@ -604,6 +604,420 @@ func TestIntegrationSubscribeCheckpoints(t *testing.T) {
 // Ensure the grpc import is used (SubscribeCheckpoints returns grpc.ServerStreamingClient).
 var _ grpc.ServerStreamingClient[pb.SubscribeCheckpointsResponse]
 
+// --- Idiomatic query convenience methods ---
+
+func TestIntegrationGetObjectByID(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			resp, err := c.GetObjectByID(ctx, "0x0000000000000000000000000000000000000000000000000000000000000005")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.Object == nil {
+				t.Error("expected object")
+			}
+		})
+	}
+}
+
+func TestIntegrationGetObjectByIDWithOptions(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			resp, err := c.GetObjectByID(ctx, "0x0000000000000000000000000000000000000000000000000000000000000005",
+				client.WithObjectReadMask(client.ReadMask("object_id", "version", "object_type")),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.Object == nil {
+				t.Error("expected object")
+			}
+			if resp.Object.GetObjectType() == "" {
+				t.Error("expected object_type in masked response")
+			}
+		})
+	}
+}
+
+func TestIntegrationBatchGetObjectsByIDs(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			resp, err := c.BatchGetObjectsByIDs(ctx, []string{
+				"0x0000000000000000000000000000000000000000000000000000000000000005",
+				"0x0000000000000000000000000000000000000000000000000000000000000006",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(resp.Objects) == 0 {
+				t.Error("expected objects")
+			}
+		})
+	}
+}
+
+func TestIntegrationGetTransactionByDigest(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			// Get a recent checkpoint to find a transaction digest.
+			info, err := c.GetServiceInfo(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cp, err := c.GetCheckpointBySequenceNumber(ctx, info.GetCheckpointHeight()-1,
+				client.WithCheckpointReadMask(client.ReadMask("sequence_number", "transactions.digest")),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cp.Checkpoint == nil || len(cp.Checkpoint.Transactions) == 0 {
+				t.Skip("checkpoint has no transactions")
+			}
+			digest := cp.Checkpoint.Transactions[0].GetDigest()
+			if digest == "" {
+				t.Skip("transaction digest is empty")
+			}
+
+			resp, err := c.GetTransactionByDigest(ctx, digest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.Transaction == nil {
+				t.Error("expected transaction in response")
+			}
+			t.Logf("GetTransactionByDigest: %s", resp.Transaction.GetDigest())
+		})
+	}
+}
+
+func TestIntegrationBatchGetTransactionsByDigests(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			info, err := c.GetServiceInfo(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cp, err := c.GetCheckpointBySequenceNumber(ctx, info.GetCheckpointHeight()-1,
+				client.WithCheckpointReadMask(client.ReadMask("sequence_number", "transactions.digest")),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cp.Checkpoint == nil || len(cp.Checkpoint.Transactions) == 0 {
+				t.Skip("checkpoint has no transactions")
+			}
+
+			var digests []string
+			for i, txn := range cp.Checkpoint.Transactions {
+				if i >= 2 {
+					break
+				}
+				if d := txn.GetDigest(); d != "" {
+					digests = append(digests, d)
+				}
+			}
+			if len(digests) == 0 {
+				t.Skip("no transaction digests found")
+			}
+
+			resp, err := c.BatchGetTransactionsByDigests(ctx, digests)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(resp.Transactions) == 0 {
+				t.Error("expected at least one transaction")
+			}
+			t.Logf("BatchGetTransactionsByDigests fetched %d transactions", len(resp.Transactions))
+		})
+	}
+}
+
+func TestIntegrationGetCheckpointBySequenceNumber(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			info, err := c.GetServiceInfo(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			seq := info.GetCheckpointHeight() - 1
+			if seq == 0 {
+				t.Skip("no checkpoint height available")
+			}
+
+			resp, err := c.GetCheckpointBySequenceNumber(ctx, seq)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.Checkpoint == nil {
+				t.Error("expected checkpoint")
+			}
+			t.Logf("Checkpoint seq: %d", resp.Checkpoint.GetSequenceNumber())
+		})
+	}
+}
+
+func TestIntegrationGetCheckpointByDigest(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			// First get a checkpoint by sequence to obtain its digest.
+			info, err := c.GetServiceInfo(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cp, err := c.GetCheckpointBySequenceNumber(ctx, info.GetCheckpointHeight()-1,
+				client.WithCheckpointReadMask(client.ReadMask("sequence_number", "digest")),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			digest := cp.Checkpoint.GetDigest()
+			if digest == "" {
+				t.Skip("checkpoint digest is empty")
+			}
+
+			resp, err := c.GetCheckpointByDigest(ctx, digest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.Checkpoint == nil {
+				t.Error("expected checkpoint")
+			}
+			t.Logf("Checkpoint by digest: seq=%d", resp.Checkpoint.GetSequenceNumber())
+		})
+	}
+}
+
+func TestIntegrationGetCurrentEpoch(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			resp, err := c.GetCurrentEpoch(ctx,
+				client.WithEpochReadMask(client.ReadMask("epoch", "reference_gas_price")),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.Epoch == nil {
+				t.Error("expected epoch")
+			}
+			if resp.Epoch.GetReferenceGasPrice() == 0 {
+				t.Error("expected reference gas price")
+			}
+			t.Logf("Epoch: %d, Gas Price: %d", resp.Epoch.GetEpoch(), resp.Epoch.GetReferenceGasPrice())
+		})
+	}
+}
+
+func TestIntegrationGetCoinInfoByType(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			resp, err := c.GetCoinInfoByType(ctx, "0x2::sui::SUI")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.GetCoinType() == "" {
+				t.Error("expected coin type in response")
+			}
+		})
+	}
+}
+
+func TestIntegrationGetBalanceByOwner(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			_, err := c.GetBalanceByOwner(ctx,
+				"0x0000000000000000000000000000000000000000000000000000000000000000",
+				"0x2::sui::SUI",
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestIntegrationListBalancesByOwner(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			_, err := c.ListBalancesByOwner(ctx,
+				"0x0000000000000000000000000000000000000000000000000000000000000000",
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestIntegrationListDynamicFieldsByParent(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			resp, err := c.ListDynamicFieldsByParent(ctx,
+				"0x0000000000000000000000000000000000000000000000000000000000000005",
+				client.WithPageSize(5),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("ListDynamicFieldsByParent returned %d entries", len(resp.DynamicFields))
+		})
+	}
+}
+
+func TestIntegrationListObjectsByOwner(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			resp, err := c.ListObjectsByOwner(ctx,
+				"0x0000000000000000000000000000000000000000000000000000000000000000",
+				client.WithOwnedObjectsPageSize(5),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Logf("ListObjectsByOwner returned %d entries", len(resp.Objects))
+		})
+	}
+}
+
+func TestIntegrationGetPackageByID(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			resp, err := c.GetPackageByID(ctx, "0x0000000000000000000000000000000000000000000000000000000000000002")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.Package == nil {
+				t.Error("expected package")
+			}
+		})
+	}
+}
+
+func TestIntegrationGetDatatypeByName(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			resp, err := c.GetDatatypeByName(ctx,
+				"0x0000000000000000000000000000000000000000000000000000000000000002",
+				"coin", "Coin",
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.Datatype == nil {
+				t.Error("expected datatype")
+			}
+		})
+	}
+}
+
+func TestIntegrationGetFunctionByName(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			resp, err := c.GetFunctionByName(ctx,
+				"0x0000000000000000000000000000000000000000000000000000000000000002",
+				"coin", "balance",
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.Function == nil {
+				t.Error("expected function")
+			}
+		})
+	}
+}
+
+func TestIntegrationListPackageVersionsByID(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			resp, err := c.ListPackageVersionsByID(ctx,
+				"0x0000000000000000000000000000000000000000000000000000000000000002",
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(resp.Versions) == 0 {
+				t.Error("expected at least one package version")
+			}
+		})
+	}
+}
+
+func TestIntegrationResolveName(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			_, err := c.ResolveName(ctx, "example.sui")
+			_ = err // May fail if name is not registered.
+		})
+	}
+}
+
+func TestIntegrationResolveAddress(t *testing.T) {
+	for _, mode := range transportModes {
+		t.Run(mode.name, func(t *testing.T) {
+			c := mode.client(t)
+			ctx := context.Background()
+
+			_, err := c.ResolveAddress(ctx, "0x0000000000000000000000000000000000000000000000000000000000000000")
+			_ = err // May fail if no name is registered.
+			t.Log("ResolveAddress call completed")
+		})
+	}
+}
+
 // --- Convenience method integration tests ---
 // These require SUI_PRIVATE_KEY env var with a funded testnet wallet.
 

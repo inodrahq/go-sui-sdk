@@ -190,9 +190,120 @@ tx.PureAddress(addr)  tx.PureBytes(b)
 tx.ImmOrOwned(ref)    tx.Shared(ref)       tx.Receiving(ref)
 ```
 
-## gRPC Methods
+## gRPC Queries
 
-All 23 methods across 7 Sui gRPC services:
+Idiomatic Go wrappers hide protobuf details — pass plain strings and use functional options:
+
+### Ledger
+
+```go
+// Get an object by ID
+resp, _ := cli.GetObjectByID(ctx, "0x5")
+
+// With options: specific version + field mask
+resp, _ := cli.GetObjectByID(ctx, "0x5",
+    client.WithObjectVersion(42),
+    client.WithObjectReadMask(client.ReadMask("object_id", "version", "balance")),
+)
+
+// Batch get objects
+resp, _ := cli.BatchGetObjectsByIDs(ctx, []string{"0x5", "0x6"})
+resp, _ := cli.BatchGetObjectsByIDs(ctx, ids, client.ReadMask("object_id", "version"))
+
+// Get transaction by digest
+resp, _ := cli.GetTransactionByDigest(ctx, "AbC123...")
+resp, _ := cli.GetTransactionByDigest(ctx, digest,
+    client.WithTransactionReadMask(client.ReadMask("digest", "effects")),
+)
+
+// Batch get transactions
+resp, _ := cli.BatchGetTransactionsByDigests(ctx, []string{"abc", "def"})
+
+// Get checkpoint by sequence number or digest
+resp, _ := cli.GetCheckpointBySequenceNumber(ctx, 12345)
+resp, _ := cli.GetCheckpointByDigest(ctx, "AbC123...")
+
+// Get current epoch (or a specific one)
+resp, _ := cli.GetCurrentEpoch(ctx)
+resp, _ := cli.GetCurrentEpoch(ctx,
+    client.WithEpochNumber(42),
+    client.WithEpochReadMask(client.ReadMask("epoch", "reference_gas_price")),
+)
+```
+
+### State
+
+```go
+// Get coin metadata
+resp, _ := cli.GetCoinInfoByType(ctx, "0x2::sui::SUI")
+
+// Get balance for a specific coin
+resp, _ := cli.GetBalanceByOwner(ctx, owner, "0x2::sui::SUI")
+
+// List all balances
+resp, _ := cli.ListBalancesByOwner(ctx, owner)
+resp, _ := cli.ListBalancesByOwner(ctx, owner, client.WithPageSize(10))
+
+// List dynamic fields
+resp, _ := cli.ListDynamicFieldsByParent(ctx, "0x5", client.WithPageSize(5))
+
+// List owned objects with type filter
+resp, _ := cli.ListObjectsByOwner(ctx, owner,
+    client.WithObjectType("0x2::coin::Coin<0x2::sui::SUI>"),
+    client.WithOwnedObjectsPageSize(10),
+    client.WithOwnedObjectsReadMask(client.ReadMask("object_id", "balance")),
+)
+```
+
+### Move Packages
+
+```go
+// Get a package
+resp, _ := cli.GetPackageByID(ctx, "0x2")
+
+// Get a Move struct/enum definition
+resp, _ := cli.GetDatatypeByName(ctx, "0x2", "coin", "Coin")
+
+// Get a Move function definition
+resp, _ := cli.GetFunctionByName(ctx, "0x2", "coin", "balance")
+
+// List package versions
+resp, _ := cli.ListPackageVersionsByID(ctx, "0x2")
+```
+
+### Name Service
+
+```go
+// Resolve name → address
+resp, _ := cli.ResolveName(ctx, "example.sui")
+
+// Resolve address → name
+resp, _ := cli.ResolveAddress(ctx, "0xABC...")
+```
+
+### ReadMask Helper
+
+Instead of `&fieldmaskpb.FieldMask{Paths: []string{...}}`, use `client.ReadMask(...)`:
+
+```go
+client.ReadMask("object_id", "version", "balance")
+```
+
+### Advanced (Raw Protobuf)
+
+All raw `pb.*` request methods remain available for full protobuf control:
+
+```go
+import pb "github.com/inodrahq/go-sui-sdk/pb/sui/rpc/v2"
+
+resp, _ := cli.GetObject(ctx, &pb.GetObjectRequest{
+    ObjectId: strPtr("0x5"),
+    Version:  uint64Ptr(42),
+    ReadMask: &fieldmaskpb.FieldMask{Paths: []string{"object_id", "version"}},
+})
+```
+
+All 23 methods across 7 services:
 
 **Ledger:** GetServiceInfo, GetObject, BatchGetObjects, GetTransaction, BatchGetTransactions, GetCheckpoint, GetEpoch
 
@@ -210,7 +321,7 @@ All 23 methods across 7 Sui gRPC services:
 
 ## Testing
 
-416 unit tests + 29 integration tests (both gRPC and gRPC-Web, plus convenience method tests).
+416 unit tests + 49 integration tests (both gRPC and gRPC-Web, covering convenience methods and raw methods).
 
 ```bash
 # Unit tests

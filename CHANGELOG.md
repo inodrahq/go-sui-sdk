@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-03-12
+
+### Added
+
+- **Idiomatic Query API**: 18 convenience methods that hide protobuf details behind plain Go parameters and functional options
+  - **Ledger**: `GetObjectByID`, `BatchGetObjectsByIDs`, `GetTransactionByDigest`, `BatchGetTransactionsByDigests`, `GetCheckpointBySequenceNumber`, `GetCheckpointByDigest`, `GetCurrentEpoch`
+  - **State**: `GetCoinInfoByType`, `GetBalanceByOwner`, `ListBalancesByOwner`, `ListDynamicFieldsByParent`, `ListObjectsByOwner`
+  - **Packages**: `GetPackageByID`, `GetDatatypeByName`, `GetFunctionByName`, `ListPackageVersionsByID`
+  - **Names**: `ResolveName`, `ResolveAddress`
+- **`ReadMask` helper**: `client.ReadMask("object_id", "version")` replaces `&fieldmaskpb.FieldMask{Paths: []string{...}}`
+- **Functional option types**: `GetObjectOption`, `GetTransactionOption`, `GetCheckpointOption`, `GetEpochOption`, `ListOption`, `ListOwnedObjectsOption`, `ListPackageVersionsOption`
+- 20 new integration tests for the convenience API
+- gRPC query documentation with usage examples in README
+
+### Notes
+
+- All existing raw `pb.*` methods remain unchanged — fully backward compatible
+
 ## [1.0.0] - 2026-03-10
 
 ### Added

@@ -231,3 +231,4 @@ func objectToRef(obj *pb.Object) (txn.ObjectRef, error) {
 
 func strPtr(s string) *string    { return &s }
 func uint32Ptr(v uint32) *uint32 { return &v }
+func uint64Ptr(v uint64) *uint64 { return &v }
